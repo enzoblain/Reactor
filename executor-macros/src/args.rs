@@ -7,7 +7,6 @@ pub struct MainArgs {
 
 impl Parse for MainArgs {
     fn parse(input: ParseStream) -> Result<Self> {
-        // valeur par défaut
         let mut worker_threads = 1;
 
         if input.is_empty() {

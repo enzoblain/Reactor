@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 executor-macros = { path = "../executor-macros", optional = true }
+futures = "0.3.31"
 
 [features]
 default = ["std"]
