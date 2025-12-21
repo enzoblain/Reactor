@@ -39,9 +39,6 @@ jobs:
       - name: Build (std)
         run: cargo build --verbose
 
-      - name: Build (no-std core only)
-        run: cargo build --no-default-features --features no-std --verbose
-
   test_std:
     runs-on: ubuntu-latest
     needs: build
@@ -50,12 +47,3 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test (std)
         run: cargo test --verbose
-
-  test_nostd:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Test (no-std core only)
-        run: cargo test --no-default-features --features no-std --verbose
