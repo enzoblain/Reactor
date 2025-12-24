@@ -1,9 +1,9 @@
-use reactor::{Runtime, task::Task};
+use reactor::{Runtime, Task};
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_global_spawn_basic() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let completed = Arc::new(Mutex::new(false));
     let completed_clone = completed.clone();
 
@@ -21,7 +21,7 @@ fn test_global_spawn_basic() {
 
 #[test]
 fn test_global_spawn_multiple() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let counter = Arc::new(Mutex::new(0));
 
     let c1 = counter.clone();
@@ -51,7 +51,7 @@ fn test_global_spawn_multiple() {
 
 #[test]
 fn test_global_spawn_nested() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let values = Arc::new(Mutex::new(Vec::new()));
 
     let v0 = values.clone();
@@ -82,7 +82,7 @@ fn test_global_spawn_nested() {
 
 #[test]
 fn test_global_spawn_from_spawned_task() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let counter = Arc::new(Mutex::new(0));
 
     let c1 = counter.clone();
@@ -114,7 +114,7 @@ fn test_global_spawn_panics_outside_runtime() {
 
 #[test]
 fn test_global_spawn_with_return_values() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let results = Arc::new(Mutex::new(Vec::new()));
 
     let r1 = results.clone();
@@ -143,12 +143,11 @@ fn compute_value(x: i32) -> i32 {
 
 #[test]
 fn test_spawn_from_separate_async_function() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let counter = Arc::new(Mutex::new(0));
 
     let c = counter.clone();
     rt.block_on(async move {
-        // Appeler une autre fonction async qui utilise spawn
         do_work_with_spawn(c).await;
     });
 
@@ -163,7 +162,6 @@ async fn do_work_with_spawn(counter: Arc<Mutex<i32>>) {
     let c1 = counter.clone();
     let c2 = counter.clone();
 
-    // spawn devrait fonctionner ici car on est dans le contexte de block_on
     Task::spawn(async move {
         *c1.lock().unwrap() += 10;
     });
@@ -175,7 +173,7 @@ async fn do_work_with_spawn(counter: Arc<Mutex<i32>>) {
 
 #[test]
 fn test_spawn_from_nested_function_calls() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let values = Arc::new(Mutex::new(Vec::new()));
 
     let v = values.clone();

@@ -55,6 +55,21 @@ impl TimerDriver {
         });
         !self.timers.is_empty()
     }
+
+    /// Returns the time remaining until the next timer deadline, if any.
+    fn next_remaining(&self) -> Option<std::time::Duration> {
+        let now = Instant::now();
+        self.timers
+            .iter()
+            .map(|(dl, _)| {
+                if *dl <= now {
+                    std::time::Duration::from_millis(0)
+                } else {
+                    *dl - now
+                }
+            })
+            .min()
+    }
 }
 
 /// A future that completes after a specified duration.
@@ -135,4 +150,10 @@ pub fn sleep(duration: Duration) -> Sleep {
 /// Returns `true` if there are still pending timers, `false` if all have been fired.
 pub(crate) fn process_timers() -> bool {
     TIMER_DRIVER.with(|driver| driver.borrow_mut().fire_expired())
+}
+
+/// Returns the remaining duration until the next scheduled timer, if any.
+/// Used by the runtime to avoid blocking on I/O when only timers are pending.
+pub(crate) fn next_timer_remaining() -> Option<Duration> {
+    TIMER_DRIVER.with(|driver| driver.borrow().next_remaining())
 }

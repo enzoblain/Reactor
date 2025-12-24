@@ -9,7 +9,7 @@ fn test_builder_creation() {
 
 #[test]
 fn test_builder_simple_future() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let completed = Arc::new(Mutex::new(false));
     let completed_clone = completed.clone();
 
@@ -23,7 +23,7 @@ fn test_builder_simple_future() {
 
 #[test]
 fn test_builder_immediate_result() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let value = 42;
 
     let future = async { value };
@@ -34,8 +34,8 @@ fn test_builder_immediate_result() {
 
 #[test]
 fn test_builder_multiple_instances() {
-    let rt1 = RuntimeBuilder::new().build();
-    let rt2 = RuntimeBuilder::new().build();
+    let mut rt1 = RuntimeBuilder::new().build();
+    let mut rt2 = RuntimeBuilder::new().build();
 
     let result1 = rt1.block_on(async { 10 });
     let result2 = rt2.block_on(async { 20 });
@@ -46,7 +46,7 @@ fn test_builder_multiple_instances() {
 
 #[test]
 fn test_builder_with_async_function() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let counter = Arc::new(Mutex::new(0));
 
     async fn increment_counter(counter: Arc<Mutex<i32>>) -> i32 {
@@ -64,7 +64,7 @@ fn test_builder_with_async_function() {
 
 #[test]
 fn test_builder_with_complex_async_function() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let result = rt.block_on(complex_computation());
 
     assert_eq!(result, 15, "Complex computation should return 15");
@@ -82,7 +82,7 @@ async fn complex_computation() -> i32 {
 
 #[test]
 fn test_spawn_simple_task() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let completed = Arc::new(Mutex::new(false));
     let completed_clone = completed.clone();
 
@@ -100,7 +100,7 @@ fn test_spawn_simple_task() {
 
 #[test]
 fn test_spawn_multiple_tasks() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let counter = Arc::new(Mutex::new(0));
 
     for _ in 0..5 {
@@ -118,7 +118,7 @@ fn test_spawn_multiple_tasks() {
 
 #[test]
 fn test_spawn_with_shared_state() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let state = Arc::new(Mutex::new(Vec::new()));
 
     for i in 0..3 {
@@ -136,7 +136,7 @@ fn test_spawn_with_shared_state() {
 
 #[test]
 fn test_block_on_waits_for_spawned_tasks() {
-    let rt = RuntimeBuilder::new().build();
+    let mut rt = RuntimeBuilder::new().build();
     let executed = Arc::new(Mutex::new(false));
     let executed_clone = executed.clone();
 

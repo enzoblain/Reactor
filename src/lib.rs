@@ -14,10 +14,12 @@
 //! - **Timer**: Sleep futures for time-based delays and scheduling
 
 mod builder;
+mod reactor;
 mod runtime;
-pub mod task;
+mod task;
 mod timer;
 
 pub use builder::RuntimeBuilder;
 pub use runtime::Runtime;
+pub use task::Task;
 pub use timer::sleep;

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn test_sleep_basic() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
 
     let start = Instant::now();
     rt.block_on(async {
@@ -19,7 +19,7 @@ fn test_sleep_basic() {
 
 #[test]
 fn test_sleep_zero_duration() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
 
     let start = Instant::now();
     rt.block_on(async {
@@ -36,7 +36,7 @@ fn test_sleep_zero_duration() {
 
 #[test]
 fn test_sleep_in_function() {
-    let rt = Runtime::new();
+    let mut rt = Runtime::new();
     let start = Instant::now();
 
     rt.block_on(async {

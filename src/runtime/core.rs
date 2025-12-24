@@ -3,6 +3,7 @@
 //! The runtime coordinates the execution of a main future via `block_on` and handles
 //! spawned background tasks. It uses a task queue and executor to manage concurrent execution.
 
+use crate::reactor::core::Reactor;
 use crate::runtime::{Executor, TaskQueue, enter_context, noop_waker};
 use crate::task::Task;
 use crate::timer;
@@ -10,8 +11,6 @@ use crate::timer;
 use std::future::Future;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::thread;
-use std::time::Duration;
 
 /// Main async runtime for executing futures.
 ///
@@ -20,6 +19,7 @@ use std::time::Duration;
 pub struct Runtime {
     queue: Arc<TaskQueue>,
     executor: Executor,
+    reactor: Reactor,
 }
 
 impl Runtime {
@@ -35,7 +35,13 @@ impl Runtime {
     pub fn new() -> Self {
         let queue = Arc::new(TaskQueue::new());
         let executor = Executor::new(queue.clone());
-        Self { queue, executor }
+        let reactor = Reactor::new();
+
+        Self {
+            queue,
+            executor,
+            reactor,
+        }
     }
 
     /// Spawns a background task to be executed concurrently.
@@ -76,7 +82,7 @@ impl Runtime {
     /// let result = rt.block_on(async { 42 });
     /// assert_eq!(result, 42);
     /// ```
-    pub fn block_on<F: Future>(&self, fut: F) -> F::Output {
+    pub fn block_on<F: Future>(&mut self, fut: F) -> F::Output {
         enter_context(self.queue.clone(), || {
             let mut fut = Box::pin(fut);
 
@@ -103,11 +109,23 @@ impl Runtime {
                     panic!("deadlock: main future is pending with no pending work");
                 }
 
-                // If no tasks are queued but timers are pending, sleep briefly
-                // to avoid busy polling while timers advance
-                if self.queue.is_empty() {
-                    thread::sleep(Duration::from_millis(1));
+                if !self.queue.is_empty() {
+                    continue;
                 }
+
+                // If only timers are pending, sleep until the next deadline
+                if has_pending_timers {
+                    if let Some(dur) = timer::next_timer_remaining()
+                        && dur > std::time::Duration::from_millis(0)
+                    {
+                        std::thread::sleep(dur);
+                    }
+                    continue;
+                }
+
+                // Otherwise, block on I/O events
+                self.reactor.wait_for_event();
+                self.reactor.handle_events();
             }
         })
     }
