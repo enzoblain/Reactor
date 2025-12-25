@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ptr;
 use std::task::Waker;
+use std::time::Duration;
 
 thread_local! {
     /// Thread-local pointer to the current Runtime's reactor
@@ -45,6 +46,8 @@ pub(crate) struct Reactor {
     events: [Event; 64],
     n_events: i32,
     registry: HashMap<i32, Entry>,
+    timers: HashMap<usize, Waker>,
+    next_timer_id: usize,
     wakers: Vec<Waker>,
 }
 
@@ -57,6 +60,8 @@ impl Reactor {
             events: [Event::EMPTY; 64],
             n_events: 0,
             registry: HashMap::new(),
+            timers: HashMap::new(),
+            next_timer_id: 1,
             wakers: Vec::new(),
         }
     }
@@ -73,6 +78,17 @@ impl Reactor {
         event.register(self.queue);
 
         self.registry.insert(file_descriptor, Entry::Waiting(waker));
+    }
+
+    pub(crate) fn register_timer(&mut self, duration: Duration, waker: Waker) {
+        let ms = duration.as_millis().clamp(0, isize::MAX as u128) as isize;
+        let id = self.next_timer_id;
+        self.next_timer_id = self.next_timer_id.wrapping_add(1).max(1);
+
+        let event = Event::new(id, EVFILT_TIMER, Some(ms));
+        event.register(self.queue);
+
+        self.timers.insert(id, waker);
     }
 
     fn unregister_write(&self, file_descriptor: i32) {
@@ -167,7 +183,10 @@ impl Reactor {
                     }
                 }
                 EVFILT_TIMER => {
-                    todo!()
+                    let timer_id = event.get_ident();
+                    if let Some(waker) = self.timers.remove(&timer_id) {
+                        self.wakers.push(waker);
+                    }
                 }
                 _ => {}
             }

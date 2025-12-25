@@ -6,7 +6,6 @@
 use crate::reactor::core::{Reactor, set_current_reactor};
 use crate::runtime::{Executor, TaskQueue, enter_context};
 use crate::task::Task;
-use crate::timer;
 
 use std::future::Future;
 use std::sync::Arc;
@@ -126,9 +125,6 @@ impl Runtime {
                 self.reactor.poll_events();
                 self.reactor.wake_ready();
 
-                // Check and fire any expired timers (this wakes sleeping tasks)
-                let has_pending_timers = timer::process_timers();
-
                 // If the main future requested a wake (yield_now), avoid blocking and poll again.
                 if notified {
                     notified = false;
@@ -136,20 +132,6 @@ impl Runtime {
                 }
 
                 if !self.queue.is_empty() {
-                    continue;
-                }
-
-                // If only timers are pending, sleep until the next deadline
-                if has_pending_timers {
-                    // Opportunistically poll I/O to avoid delaying wakes while timers are pending
-                    self.reactor.poll_events();
-                    self.reactor.wake_ready();
-
-                    if let Some(dur) = timer::next_timer_remaining()
-                        && dur > std::time::Duration::from_millis(0)
-                    {
-                        std::thread::sleep(dur);
-                    }
                     continue;
                 }
 

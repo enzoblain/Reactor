@@ -18,12 +18,11 @@ mod builder;
 mod reactor;
 mod runtime;
 mod task;
-mod timer;
 
 pub use builder::RuntimeBuilder;
 pub use reactor::future::{AsyncRead, AsyncWrite};
+pub use reactor::sleep::sleep;
 pub use runtime::Runtime;
 pub use runtime::yield_now::yield_now;
 pub use task::JoinSet;
 pub use task::Task;
-pub use timer::sleep;
