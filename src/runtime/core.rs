@@ -3,8 +3,8 @@
 //! The runtime coordinates the execution of a main future via `block_on` and handles
 //! spawned background tasks. It uses a task queue and executor to manage concurrent execution.
 
-use crate::reactor::core::Reactor;
-use crate::runtime::{Executor, TaskQueue, enter_context, noop_waker};
+use crate::reactor::core::{Reactor, set_current_reactor};
+use crate::runtime::{Executor, TaskQueue, enter_context};
 use crate::task::Task;
 use crate::timer;
 
@@ -83,10 +83,33 @@ impl Runtime {
     /// assert_eq!(result, 42);
     /// ```
     pub fn block_on<F: Future>(&mut self, fut: F) -> F::Output {
+        // Make the runtime's reactor available to futures on this thread
+        set_current_reactor(&mut self.reactor);
+
         enter_context(self.queue.clone(), || {
             let mut fut = Box::pin(fut);
 
-            let w = noop_waker();
+            // Main-future waker that sets a local notification flag on wake.
+            // This avoids blocking on I/O when the main future requests a yield.
+            let mut notified = false;
+            fn clone(ptr: *const ()) -> std::task::RawWaker {
+                std::task::RawWaker::new(ptr, &VTABLE)
+            }
+            fn wake(ptr: *const ()) {
+                unsafe {
+                    *(ptr as *mut bool) = true;
+                }
+            }
+            fn wake_by_ref(ptr: *const ()) {
+                unsafe {
+                    *(ptr as *mut bool) = true;
+                }
+            }
+            fn drop(_: *const ()) {}
+            static VTABLE: std::task::RawWakerVTable =
+                std::task::RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+            let raw = std::task::RawWaker::new(&mut notified as *mut bool as *const (), &VTABLE);
+            let w = unsafe { std::task::Waker::from_raw(raw) };
             let mut cx = Context::from_waker(&w);
 
             loop {
@@ -99,14 +122,17 @@ impl Runtime {
                 // Execute all spawned tasks
                 self.executor.run();
 
+                // Opportunistically poll I/O each tick to deliver wakes promptly
+                self.reactor.poll_events();
+                self.reactor.wake_ready();
+
                 // Check and fire any expired timers (this wakes sleeping tasks)
                 let has_pending_timers = timer::process_timers();
 
-                // If no tasks are queued and no timers are pending, we deadlock
-                // This shouldn't happen in well-formed async code
-                if self.queue.is_empty() && !has_pending_timers {
-                    // Main future is pending, no tasks, no timers -> deadlock
-                    panic!("deadlock: main future is pending with no pending work");
+                // If the main future requested a wake (yield_now), avoid blocking and poll again.
+                if notified {
+                    notified = false;
+                    continue;
                 }
 
                 if !self.queue.is_empty() {
@@ -115,6 +141,10 @@ impl Runtime {
 
                 // If only timers are pending, sleep until the next deadline
                 if has_pending_timers {
+                    // Opportunistically poll I/O to avoid delaying wakes while timers are pending
+                    self.reactor.poll_events();
+                    self.reactor.wake_ready();
+
                     if let Some(dur) = timer::next_timer_remaining()
                         && dur > std::time::Duration::from_millis(0)
                     {
@@ -126,6 +156,8 @@ impl Runtime {
                 // Otherwise, block on I/O events
                 self.reactor.wait_for_event();
                 self.reactor.handle_events();
+                // Wake all futures that became ready
+                self.reactor.wake_ready();
             }
         })
     }

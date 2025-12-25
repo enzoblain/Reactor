@@ -60,6 +60,25 @@ impl Event {
         }
     }
 
+    /// Non-blocking wait: polls for any available events and returns immediately.
+    pub(crate) fn try_wait(queue: i32, events: &mut [Event; 64]) -> i32 {
+        let ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        unsafe {
+            kevent(
+                queue,
+                ptr::null(),
+                0,
+                events.as_mut_ptr() as *mut kevent,
+                events.len() as i32,
+                &ts as *const libc::timespec,
+            )
+        }
+    }
+
     pub(crate) fn set_nonblocking(file_descriptor: i32) {
         let flags = unsafe { fcntl(file_descriptor, F_GETFL) };
 

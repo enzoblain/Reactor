@@ -103,27 +103,3 @@ pub fn make_waker(task: Arc<Task>) -> Waker {
     let raw = RawWaker::new(Arc::into_raw(w) as *const (), &TaskWaker::VTABLE);
     unsafe { Waker::from_raw(raw) }
 }
-
-/// Creates a no-op RawWaker that does nothing when called.
-///
-/// Used internally for futures that don't need actual waking.
-fn noop_raw() -> RawWaker {
-    fn clone(_: *const ()) -> RawWaker {
-        noop_raw()
-    }
-    fn wake(_: *const ()) {}
-    fn wake_by_ref(_: *const ()) {}
-    fn drop(_: *const ()) {}
-
-    RawWaker::new(
-        std::ptr::null(),
-        &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
-    )
-}
-
-/// Creates a no-op Waker that does nothing when awakened.
-///
-/// Useful for the main future in block_on that doesn't interact with wakers.
-pub(crate) fn noop_waker() -> Waker {
-    unsafe { Waker::from_raw(noop_raw()) }
-}

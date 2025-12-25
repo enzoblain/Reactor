@@ -12,6 +12,7 @@
 //! - **Waker**: Implements task wake-up mechanisms
 //! - **RuntimeBuilder**: Fluent builder pattern for runtime instantiation
 //! - **Timer**: Sleep futures for time-based delays and scheduling
+//! - **Reactor**: Event-driven I/O handling with kqueue
 
 mod builder;
 mod reactor;
@@ -20,6 +21,9 @@ mod task;
 mod timer;
 
 pub use builder::RuntimeBuilder;
+pub use reactor::future::{AsyncRead, AsyncWrite};
 pub use runtime::Runtime;
+pub use runtime::yield_now::yield_now;
+pub use task::JoinSet;
 pub use task::Task;
 pub use timer::sleep;

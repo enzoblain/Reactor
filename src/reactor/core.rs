@@ -5,33 +5,39 @@ use crate::reactor::socket::accept_client;
 use libc::{
     EAGAIN, EVFILT_READ, EVFILT_TIMER, EVFILT_WRITE, EWOULDBLOCK, close, kqueue, read, write,
 };
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::ptr;
 use std::task::Waker;
+
+thread_local! {
+    /// Thread-local pointer to the current Runtime's reactor
+    pub(crate) static CURRENT_REACTOR_PTR: RefCell<*mut Reactor> = const { RefCell::new(ptr::null_mut()) };
+}
+
+pub(crate) fn set_current_reactor(r: &mut Reactor) {
+    CURRENT_REACTOR_PTR.with(|cell| {
+        *cell.borrow_mut() = r as *mut Reactor;
+    });
+}
+
+pub(crate) fn with_current_reactor<R>(f: impl FnOnce(&mut Reactor) -> R) -> Option<R> {
+    CURRENT_REACTOR_PTR.with(|cell| {
+        let ptr = *cell.borrow();
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { f(&mut *ptr) })
+        }
+    })
+}
 
 pub(crate) enum Entry {
     #[allow(unused)]
     Listener,
     Client(Connexion),
-    /// A future waiting for I/O events
-    Future(FutureEntry),
+    Waiting(Waker),
     // Timer,
-}
-
-/// Represents a future waiting for I/O readiness
-pub(crate) struct FutureEntry {
-    /// Waker to notify when the I/O event is ready
-    pub(crate) waker: Waker,
-    /// Type of I/O event being waited for
-    pub(crate) interest: Interest,
-}
-
-/// Type of I/O event interest
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Interest {
-    Read,
-    Write,
-    ReadWrite,
 }
 
 pub(crate) struct Reactor {
@@ -39,8 +45,7 @@ pub(crate) struct Reactor {
     events: [Event; 64],
     n_events: i32,
     registry: HashMap<i32, Entry>,
-    /// Pending wakers to be notified
-    pending_wakers: Vec<Waker>,
+    wakers: Vec<Waker>,
 }
 
 const OUT_MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -52,72 +57,23 @@ impl Reactor {
             events: [Event::EMPTY; 64],
             n_events: 0,
             registry: HashMap::new(),
-            pending_wakers: Vec::new(),
+            wakers: Vec::new(),
         }
     }
 
-    /// Register a future to be woken when I/O is ready
-    pub(crate) fn register_future(
-        &mut self,
-        file_descriptor: i32,
-        waker: Waker,
-        interest: Interest,
-    ) {
-        // Register appropriate kqueue events based on interest
-        match interest {
-            Interest::Read => {
-                let event = Event::new(file_descriptor as usize, EVFILT_READ, None);
-                event.register(self.queue);
-            }
-            Interest::Write => {
-                let event = Event::new(file_descriptor as usize, EVFILT_WRITE, None);
-                event.register(self.queue);
-            }
-            Interest::ReadWrite => {
-                let event_read = Event::new(file_descriptor as usize, EVFILT_READ, None);
-                let event_write = Event::new(file_descriptor as usize, EVFILT_WRITE, None);
-                event_read.register(self.queue);
-                event_write.register(self.queue);
-            }
-        }
+    pub(crate) fn register_read(&mut self, file_descriptor: i32, waker: Waker) {
+        let event = Event::new(file_descriptor as usize, EVFILT_READ, None);
+        event.register(self.queue);
 
-        // Store the future entry
-        self.registry.insert(
-            file_descriptor,
-            Entry::Future(FutureEntry { waker, interest }),
-        );
+        self.registry.insert(file_descriptor, Entry::Waiting(waker));
     }
 
-    /// Unregister a future from I/O notifications
-    pub(crate) fn unregister_future(&mut self, file_descriptor: i32, interest: Interest) {
-        match interest {
-            Interest::Read => {
-                Event::unregister(self.queue, file_descriptor as usize, EVFILT_READ);
-            }
-            Interest::Write => {
-                Event::unregister(self.queue, file_descriptor as usize, EVFILT_WRITE);
-            }
-            Interest::ReadWrite => {
-                Event::unregister(self.queue, file_descriptor as usize, EVFILT_READ);
-                Event::unregister(self.queue, file_descriptor as usize, EVFILT_WRITE);
-            }
-        }
+    pub(crate) fn register_write(&mut self, file_descriptor: i32, waker: Waker) {
+        let event = Event::new(file_descriptor as usize, EVFILT_WRITE, None);
+        event.register(self.queue);
 
-        self.registry.remove(&file_descriptor);
+        self.registry.insert(file_descriptor, Entry::Waiting(waker));
     }
-
-    // fn register_event(&self, file_descriptor: usize, filter: i16) {
-    //     let event = Event::new(file_descriptor, filter, None);
-    //     event.register(self.queue);
-    // }
-
-    // fn register_read(&self, file_descriptor: i32) {
-    //     self.register_event(file_descriptor as usize, EVFILT_READ);
-    // }
-
-    // fn register_write(&self, file_descriptor: i32) {
-    //     self.register_event(file_descriptor as usize, EVFILT_WRITE);
-    // }
 
     fn unregister_write(&self, file_descriptor: i32) {
         Event::unregister(self.queue, file_descriptor as usize, EVFILT_WRITE);
@@ -129,9 +85,18 @@ impl Reactor {
         self.n_events = n_events;
     }
 
-    /// Wake all pending futures and clear the list
-    pub(crate) fn wake_pending(&mut self) {
-        for waker in self.pending_wakers.drain(..) {
+    /// Polls for I/O events without blocking and handles them if present.
+    pub(crate) fn poll_events(&mut self) {
+        let n_events = Event::try_wait(self.queue, &mut self.events);
+        if n_events <= 0 {
+            return;
+        }
+        self.n_events = n_events;
+        self.handle_events();
+    }
+
+    pub(crate) fn wake_ready(&mut self) {
+        for waker in self.wakers.drain(..) {
             waker.wake();
         }
     }
@@ -154,10 +119,8 @@ impl Reactor {
                     };
 
                     match &mut entry {
-                        Entry::Future(future_entry) => {
-                            // Wake the future waiting for read readiness
-                            self.pending_wakers.push(future_entry.waker.clone());
-                            // Don't re-insert, the future will re-register if needed
+                        Entry::Waiting(waker) => {
+                            self.wakers.push(waker.clone());
                             continue;
                         }
                         Entry::Client(conn) if matches!(conn.state, ConnexionState::Reading) => {
@@ -183,10 +146,8 @@ impl Reactor {
                     };
 
                     match &mut entry {
-                        Entry::Future(future_entry) => {
-                            // Wake the future waiting for write readiness
-                            self.pending_wakers.push(future_entry.waker.clone());
-                            // Don't re-insert, the future will re-register if needed
+                        Entry::Waiting(waker) => {
+                            self.wakers.push(waker.clone());
                             continue;
                         }
                         Entry::Client(conn) if matches!(conn.state, ConnexionState::Writing) => {

@@ -8,8 +8,10 @@ use crate::runtime::{CURRENT_QUEUE, TaskQueue, enter_context, make_waker};
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Context;
+use std::task::{Poll, Waker};
 
 /// A spawned task that wraps a future.
 ///
@@ -18,6 +20,8 @@ use std::task::Context;
 pub struct Task {
     future: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
     pub(crate) queue: Arc<TaskQueue>,
+    completed: AtomicBool,
+    waiters: Mutex<Vec<Waker>>, // join handles waiting for completion
 }
 
 impl Task {
@@ -39,6 +43,8 @@ impl Task {
         Arc::new(Task {
             future: Mutex::new(Some(Box::pin(fut))),
             queue,
+            completed: AtomicBool::new(false),
+            waiters: Mutex::new(Vec::new()),
         })
     }
 
@@ -57,38 +63,30 @@ impl Task {
 
             let mut slot = self.future.lock().unwrap();
 
-            if let Some(mut fut) = slot.take()
-                && fut.as_mut().poll(&mut cx).is_pending()
-            {
-                *slot = Some(fut);
+            if let Some(mut fut) = slot.take() {
+                match fut.as_mut().poll(&mut cx) {
+                    std::task::Poll::Pending => {
+                        *slot = Some(fut);
+                    }
+                    std::task::Poll::Ready(()) => {
+                        self.completed.store(true, Ordering::SeqCst);
+                        // Wake any join waiters
+                        let mut ws = self.waiters.lock().unwrap();
+                        for w in ws.drain(..) {
+                            w.wake();
+                        }
+                    }
+                }
             }
         });
     }
 
-    /// Spawns a task on the current runtime context.
+    /// Spawns a task on the current runtime context and returns a JoinHandle.
     ///
-    /// This function allows spawning tasks without holding a runtime reference,
-    /// similar to `tokio::spawn()`. Must be called from within a runtime context
-    /// (i.e., from within a `block_on` or spawned task).
-    ///
-    /// # Arguments
-    /// * `fut` - The future to spawn as a background task
-    ///
-    /// # Panics
-    /// Panics if called outside of a runtime context (no runtime is active on this thread).
-    ///
-    /// # Example
-    /// ```ignore
-    /// use reactor::task::Task;
-    ///
-    /// let rt = reactor::Runtime::new();
-    /// rt.block_on(async {
-    ///     Task::spawn(async {
-    ///         println!("Spawned task");
-    ///     });
-    /// });
-    /// ```
-    pub fn spawn<F: Future<Output = ()> + Send + 'static>(fut: F) {
+    /// Mirrors `tokio::spawn`: returns a handle that can be awaited
+    /// to know when the task completes. Must be called from within a
+    /// runtime context.
+    pub fn spawn<F: Future<Output = ()> + Send + 'static>(fut: F) -> JoinHandle {
         CURRENT_QUEUE.with(|current| {
             let queue = current
                 .borrow()
@@ -97,7 +95,61 @@ impl Task {
                 .clone();
 
             let task = Task::new(fut, queue.clone());
-            queue.push(task);
-        });
+            // Poll once immediately to register I/O or make initial progress
+            task.poll();
+            // Enqueue for subsequent scheduling by the executor
+            queue.push(task.clone());
+            JoinHandle { task }
+        })
+    }
+}
+
+/// A future that resolves when the associated task completes.
+pub struct JoinHandle {
+    task: Arc<Task>,
+}
+
+impl Future for JoinHandle {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.task.completed.load(Ordering::SeqCst) {
+            return Poll::Ready(());
+        }
+        // Register waker to be notified when task completes
+        let mut ws = self.task.waiters.lock().unwrap();
+        ws.push(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+/// A helper to collect multiple `JoinHandle`s and await all of them at once.
+/// Hides the explicit loop over individual awaits.
+pub struct JoinSet {
+    handles: Vec<JoinHandle>,
+}
+
+impl JoinSet {
+    pub fn new() -> Self {
+        Self {
+            handles: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, h: JoinHandle) {
+        self.handles.push(h);
+    }
+
+    pub async fn await_all(&mut self) {
+        // Await all handles, draining to free memory progressively
+        for h in self.handles.drain(..) {
+            h.await;
+        }
+    }
+}
+
+impl Default for JoinSet {
+    fn default() -> Self {
+        Self::new()
     }
 }
