@@ -3,7 +3,7 @@
 //! This module provides non-blocking TCP networking primitives for async I/O:
 //! - [`tcp_listener`]: [`TcpListener`] for accepting connections
 //! - [`tcp_stream`]: [`TcpStream`] for reading/writing data
-//! - [`future`]: Low-level futures for TCP operations
+//! - [`future`]: Accept future for listeners plus read/write futures re-exported from the reactor
 //! - [`utils`]: Address parsing and conversion utilities
 //!
 //! # Example

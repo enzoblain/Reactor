@@ -20,8 +20,8 @@
 //!     }
 //! }
 //! ```
-use crate::net::future::{ReadFuture, WriteFuture};
 use crate::reactor::core::ReactorHandle;
+use crate::reactor::future::{ReadFuture, WriteFuture};
 
 use libc::close;
 use std::io;

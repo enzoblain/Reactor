@@ -44,8 +44,8 @@ latency budgets and ordering guarantees matter.
 - 🧩 **Sync First, Async Ready**  
   Start with synchronous tasks; evolve toward async executors as needed.
 
-- 🌐 **No-Std (Planned)**  
-  A `no-std` mode is on the roadmap for constrained targets; feature flag is stubbed today.
+- 🗂️ **Non-Blocking I/O**  
+  TCP sockets and file descriptors are opened non-blocking and driven by the reactor (kqueue).
 
 - 🚀 **Performance-Conscious**  
   Favor O(1) enqueue/progress operations with room for instrumentation.

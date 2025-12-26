@@ -41,10 +41,11 @@
 //!
 //! ## I/O Operations
 //! The runtime provides non-blocking TCP networking via [`TcpListener`](net::tcp_listener::TcpListener)
-//! and [`TcpStream`](net::tcp_stream::TcpStream):
+//! and [`TcpStream`](net::tcp_stream::TcpStream), plus non-blocking file access via [`File`](fs::file::File):
 //!
 //! ```ignore
 //! use reactor::net::tcp_listener::TcpListener;
+//! use reactor::File;
 //!
 //! async fn server() {
 //!     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
@@ -52,6 +53,18 @@
 //!         let (stream, addr) = listener.accept().await.unwrap();
 //!         println!("New connection from {}", addr);
 //!     }
+//! }
+//!
+//! async fn file_roundtrip() -> std::io::Result<()> {
+//!     let path = "/tmp/reactor-doc.txt";
+//!     let file = File::create(path).await?;
+//!     file.write_all(b"hello").await?;
+//!
+//!     let file = File::open(path).await?;
+//!     let mut buf = [0u8; 5];
+//!     let n = file.read(&mut buf).await?;
+//!     assert_eq!(&buf[..n], b"hello");
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -191,6 +204,7 @@ mod reactor;
 mod runtime;
 mod task;
 
+pub mod fs;
 pub mod net;
 
 pub use builder::RuntimeBuilder;
