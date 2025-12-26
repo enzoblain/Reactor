@@ -8,7 +8,7 @@
 use crate::reactor::core::ReactorHandle;
 use crate::reactor::event::Event;
 use crate::reactor::future::{ReadFuture, WriteFuture};
-use crate::runtime::context::current_reactor;
+use crate::runtime::context::current_reactor_fs;
 
 use libc::{O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY, close, open};
 use std::ffi::CString;
@@ -45,7 +45,7 @@ impl File {
     /// [`open_with_reactor`](Self::open_with_reactor) when a specific reactor
     /// handle is needed.
     pub async fn open_with_flags(path: &str, flags: i32) -> io::Result<Self> {
-        Self::open_with_reactor(path, flags, current_reactor()).await
+        Self::open_with_reactor(path, flags, current_reactor_fs()).await
     }
 
     /// Opens a file with custom flags and an explicit reactor handle.

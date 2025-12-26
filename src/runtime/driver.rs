@@ -96,7 +96,6 @@ impl BackgroundDriver {
     /// # Thread Safety
     /// Uses a static HashSet to track which queues already have drivers, preventing
     /// duplicate driver threads for the same queue.
-    #[allow(unused_variables)]
     pub(crate) fn ensure_spawned(queue: Arc<TaskQueue>) {
         // NOTE: BackgroundDriver is currently disabled because ReactorHandle uses Rc<RefCell<>>
         // which is not Send. To enable multi-threading, we would need to use Arc<Mutex<>> instead.

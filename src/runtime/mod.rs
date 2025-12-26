@@ -26,7 +26,7 @@ pub(crate) mod queue;
 pub(crate) mod waker;
 pub mod yield_now;
 
-pub(crate) use context::{CURRENT_QUEUE, enter_context};
+pub(crate) use context::{CURRENT_QUEUE, Features, enter_context};
 pub use core::Runtime;
 pub(crate) use executor::Executor;
 pub(crate) use queue::TaskQueue;

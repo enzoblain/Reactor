@@ -18,7 +18,7 @@
 //! ```
 
 use crate::reactor::core::ReactorHandle;
-use crate::runtime::context::current_reactor;
+use crate::runtime::context::current_reactor_io;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -57,7 +57,7 @@ impl Sleep {
     /// Sleep::new(Duration::from_secs(1)).await;
     /// ```
     pub fn new(duration: Duration) -> Self {
-        Self::new_with_reactor(duration, current_reactor())
+        Self::new_with_reactor(duration, current_reactor_io())
     }
 
     /// Creates a new sleep future with a specific reactor handle.

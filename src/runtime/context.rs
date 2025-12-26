@@ -7,92 +7,167 @@
 //!
 //! This module uses thread-local storage to maintain:
 //! - The current runtime's task queue for spawning tasks
-//! - The current runtime's reactor handle for I/O operations
-//!
-//! These are automatically set when entering a runtime context via [`Runtime::block_on`].
-//!
-//! [`Runtime::block_on`]: crate::runtime::Runtime::block_on
 
-use super::queue::TaskQueue;
+//!   Thread-local runtime context and feature gating for async task spawning and I/O.
+//!
+//! This module manages the thread-local state required for global task spawning (`Task::spawn`) and
+//! for safe, feature-gated access to the runtime's reactor (I/O, timers, filesystem).
+//!
+//! # Overview
+//!
+//! - Allows retrieving the current context (queue, reactor, features) during a `block_on`.
+//! - Ensures that I/O or FS operations are only accessible if explicitly enabled.
+//! - Used internally by most async primitives in the crate.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use reactor::runtime::context::{enter_context, Features};
+//! use std::sync::Arc;
+//! use reactor::runtime::queue::TaskQueue;
+//! use reactor::reactor::core::ReactorHandle;
+//!
+//! let queue = Arc::new(TaskQueue::new());
+//! let reactor = todo!(); // Replace with a real ReactorHandle in real code
+//! let features = Features { io_enabled: true, fs_enabled: false };
+//! enter_context(queue, reactor, features, || {
+//!     // ... async code ...
+//! });
+//! ```
+//!
+//! # Safety
+//!
+//! This module uses thread-local storage to ensure each thread has its own context.
+//! Feature access is checked on every sensitive API call (I/O, FS).
+
 use crate::reactor::core::ReactorHandle;
+use crate::runtime::queue::TaskQueue;
 
 use std::cell::RefCell;
 use std::sync::Arc;
 
+/// Feature switches for the current runtime context.
+///
+/// Used internally to gate access to I/O and filesystem APIs.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Features {
+    /// If true, reactor-backed I/O is enabled for this runtime context.
+    pub(crate) io_enabled: bool,
+
+    /// If true, filesystem support is enabled for this runtime context.
+    pub(crate) fs_enabled: bool,
+}
+
 thread_local! {
     /// Thread-local storage for the current runtime's task queue.
     ///
-    /// When a runtime is entered via [`Runtime::block_on`], its task queue is stored here,
-    /// allowing [`Task::spawn`] to work without an explicit runtime reference.
-    /// This enables global task spawning similar to `tokio::spawn()`.
-    ///
-    /// [`Runtime::block_on`]: crate::runtime::Runtime::block_on
-    /// [`Task::spawn`]: crate::task::Task::spawn
-    pub(crate) static CURRENT_QUEUE: RefCell<Option<Arc<TaskQueue>>> =
-        const { RefCell::new(None) };
+    /// Set by [`enter_context`] at the start of every `block_on`.
+    pub(crate) static CURRENT_QUEUE: RefCell<Option<Arc<TaskQueue>>> = const { RefCell::new(None) };
 
     /// Thread-local storage for the current runtime's reactor handle.
     ///
-    /// When a runtime is entered via [`Runtime::block_on`], its reactor handle is stored here,
-    /// allowing I/O operations to work without an explicit reactor reference.
-    /// This enables patterns like [`TcpListener::bind`] without passing a reactor.
-    ///
-    /// [`Runtime::block_on`]: crate::runtime::Runtime::block_on
-    /// [`TcpListener::bind`]: crate::net::tcp_listener::TcpListener::bind
-    pub(crate) static CURRENT_REACTOR: RefCell<Option<ReactorHandle>> =
-        const { RefCell::new(None) };
-}
+    /// Set by [`enter_context`] at the start of every `block_on`.
+    pub(crate) static CURRENT_REACTOR: RefCell<Option<ReactorHandle>> = const { RefCell::new(None) };
 
-/// Enters a runtime context with the given task queue and reactor.
+    /// Thread-local storage for the current runtime's feature set.
+    ///
+    /// Set by [`enter_context`] at the start of every `block_on`.
+    pub(crate) static CURRENT_FEATURES: RefCell<Option<Features>> = const { RefCell::new(None) };
+}
+/// This enables patterns like [`TcpListener::bind`] without passing a reactor.
 ///
-/// Sets the thread-local runtime context so that [`Task::spawn`] and I/O operations
-/// can work without an explicit runtime handle.
+/// Enters a new async runtime context for the current thread.
+///
+/// This function is called automatically by the runtime at each `block_on`.
+/// It sets the task queue, reactor handle, and feature set in thread-local storage,
+/// then executes the provided closure. The previous context is restored on exit.
 ///
 /// # Arguments
-/// * `queue` - The task queue to use as the current runtime context
-/// * `reactor` - The reactor handle to use for I/O operations
-/// * `function` - The function to execute within this runtime context
+/// - `queue`: The task queue to use in this context.
+/// - `reactor`: The reactor handle to use.
+/// - `features`: The feature set (I/O, FS) to enable.
+/// - `function`: Closure to execute within this context.
 ///
-/// # Returns
-/// The return value of the function `function`
+/// # Example
 ///
-/// [`Task::spawn`]: crate::task::Task::spawn
-pub(crate) fn enter_context<F, R>(queue: Arc<TaskQueue>, reactor: ReactorHandle, function: F) -> R
+/// ```ignore
+/// use reactor::runtime::context::{enter_context, Features};
+/// use std::sync::Arc;
+/// use reactor::runtime::queue::TaskQueue;
+/// use reactor::reactor::core::ReactorHandle;
+///
+/// let queue = Arc::new(TaskQueue::new());
+/// let reactor = todo!(); // Replace with a real ReactorHandle in real code
+/// let features = Features { io_enabled: true, fs_enabled: false };
+/// enter_context(queue, reactor, features, || {
+///     // ... async code ...
+/// });
+/// ```
+pub(crate) fn enter_context<F, R>(
+    queue: Arc<TaskQueue>,
+    reactor: ReactorHandle,
+    features: Features,
+    function: F,
+) -> R
 where
     F: FnOnce() -> R,
 {
     CURRENT_QUEUE.with(|current_queue| {
         CURRENT_REACTOR.with(|current_reactor| {
-            let previous_queue = current_queue.borrow_mut().replace(queue.clone());
-            let previous_reactor = current_reactor.borrow_mut().replace(reactor.clone());
+            CURRENT_FEATURES.with(|current_features| {
+                let previous_queue = current_queue.borrow_mut().replace(queue.clone());
+                let previous_reactor = current_reactor.borrow_mut().replace(reactor.clone());
+                let previous_features = current_features.borrow_mut().replace(features);
 
-            let result = function();
+                let result = function();
 
-            *current_queue.borrow_mut() = previous_queue;
-            *current_reactor.borrow_mut() = previous_reactor;
+                *current_queue.borrow_mut() = previous_queue;
+                *current_reactor.borrow_mut() = previous_reactor;
+                *current_features.borrow_mut() = previous_features;
 
-            result
+                result
+            })
         })
     })
 }
 
-/// Gets the current reactor handle from the thread-local context.
-///
-/// This is used internally by I/O operations like [`TcpListener::bind`]
-/// to automatically use the current runtime's reactor without requiring
-/// an explicit reactor parameter.
-///
-/// # Returns
-/// The current reactor handle if inside a runtime context, or panics if called
-/// outside of a runtime context (i.e., not within a [`Runtime::block_on`] call).
+/// Returns the current reactor handle for I/O operations.
 ///
 /// # Panics
-/// Panics if called outside a runtime context. All I/O operations should be
-/// performed within a [`Runtime::block_on`] call.
+/// Panics if the runtime was not built with `.enable_io()`.
+pub(crate) fn current_reactor_io() -> ReactorHandle {
+    ensure_feature(|f| f.io_enabled, "I/O", "RuntimeBuilder::enable_io()");
+
+    current_reactor_inner()
+}
+
+/// Returns the current reactor handle for filesystem operations.
 ///
-/// [`TcpListener::bind`]: crate::net::tcp_listener::TcpListener::bind
-/// [`Runtime::block_on`]: crate::runtime::Runtime::block_on
-pub fn current_reactor() -> ReactorHandle {
+/// # Panics
+/// Panics if the runtime was not built with `.enable_fs()`.
+pub(crate) fn current_reactor_fs() -> ReactorHandle {
+    ensure_feature(
+        |f| f.fs_enabled,
+        "filesystem",
+        "RuntimeBuilder::enable_fs()",
+    );
+
+    current_reactor_inner()
+}
+
+// Checks that a feature is enabled in the current context, panics otherwise.
+fn ensure_feature(check: impl Fn(&Features) -> bool, name: &str, hint: &str) {
+    CURRENT_FEATURES.with(|features| {
+        let enabled = features.borrow().as_ref().map(check).unwrap_or(false);
+
+        if !enabled {
+            panic!("{} support not enabled. Use {}.", name, hint);
+        }
+    })
+}
+
+// Returns the current reactor handle, or panics if not in a runtime context.
+fn current_reactor_inner() -> ReactorHandle {
     CURRENT_REACTOR.with(|current| {
         current.borrow().clone().expect(
             "No reactor in current context. I/O operations must be called within Runtime::block_on",

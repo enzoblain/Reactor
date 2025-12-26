@@ -1,10 +1,10 @@
-use reactor::Runtime;
+use reactor::RuntimeBuilder;
 use reactor::fs::File;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn file_read_write_roundtrip() {
-    let mut runtime = Runtime::new();
+    let mut runtime = RuntimeBuilder::new().enable_fs().build();
 
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

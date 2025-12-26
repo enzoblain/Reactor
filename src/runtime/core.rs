@@ -31,7 +31,7 @@
 //! [`Task::spawn`]: crate::task::Task::spawn
 
 use crate::reactor::core::{Reactor, ReactorHandle};
-use crate::runtime::{Executor, TaskQueue, enter_context};
+use crate::runtime::{Executor, Features, TaskQueue, enter_context};
 use crate::task::Task;
 
 use std::future::Future;
@@ -61,6 +61,12 @@ pub struct Runtime {
 
     /// A handle to the reactor for managing I/O events.
     reactor: ReactorHandle,
+
+    /// Whether I/O operations are enabled for this runtime.
+    io_enabled: bool,
+
+    /// Whether filesystem operations are enabled for this runtime.
+    fs_enabled: bool,
 }
 
 impl Runtime {
@@ -74,6 +80,12 @@ impl Runtime {
     /// let runtime = Runtime::new();
     /// ```
     pub fn new() -> Self {
+        Self::with_features(false, false)
+    }
+
+    /// Creates a runtime with the requested feature set.
+    pub(crate) fn with_features(io_enabled: bool, fs_enabled: bool) -> Self {
+        let io_enabled = io_enabled || fs_enabled; // fs support requires reactor-backed I/O
         let queue = Arc::new(TaskQueue::new());
         let executor = Executor::new(queue.clone());
         let reactor = Arc::new(Mutex::new(Reactor::new()));
@@ -82,6 +94,8 @@ impl Runtime {
             queue,
             executor,
             reactor,
+            io_enabled,
+            fs_enabled,
         }
     }
 
@@ -126,7 +140,12 @@ impl Runtime {
     ///
     /// [`Task::spawn`]: crate::task::Task::spawn
     pub fn block_on<F: Future>(&mut self, future: F) -> F::Output {
-        enter_context(self.queue.clone(), self.reactor.clone(), || {
+        let features = Features {
+            io_enabled: self.io_enabled,
+            fs_enabled: self.fs_enabled,
+        };
+
+        enter_context(self.queue.clone(), self.reactor.clone(), features, || {
             let mut future = Box::pin(future);
 
             let mut is_notified = false;
@@ -212,6 +231,16 @@ impl Runtime {
     /// A cloned handle to the runtime's reactor
     pub fn reactor_handle(&self) -> ReactorHandle {
         self.reactor.clone()
+    }
+
+    /// Returns whether I/O operations are enabled for this runtime.
+    pub fn io_enabled(&self) -> bool {
+        self.io_enabled
+    }
+
+    /// Returns whether filesystem operations are enabled for this runtime.
+    pub fn fs_enabled(&self) -> bool {
+        self.fs_enabled
     }
 }
 

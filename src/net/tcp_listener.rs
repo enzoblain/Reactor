@@ -23,7 +23,7 @@ use crate::net::tcp_stream::TcpStream;
 use crate::net::utils::sockaddr_to_socketaddr;
 use crate::reactor::core::ReactorHandle;
 use crate::reactor::event::Event;
-use crate::runtime::context::current_reactor;
+use crate::runtime::context::current_reactor_io;
 
 use libc::{AF_INET, SOCK_STREAM, bind, close, getsockname, listen, sockaddr, sockaddr_in, socket};
 use std::io;
@@ -74,7 +74,7 @@ impl TcpListener {
     /// let listener = TcpListener::bind("0.0.0.0:8080").await?;
     /// ```
     pub async fn bind(address: &str) -> io::Result<Self> {
-        Self::bind_with_reactor(address, current_reactor()).await
+        Self::bind_with_reactor(address, current_reactor_io()).await
     }
 
     /// Binds a listener to the given address with a specific reactor handle.

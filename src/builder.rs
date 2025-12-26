@@ -13,7 +13,16 @@ use crate::runtime::Runtime;
 /// ```ignore
 /// let rt = RuntimeBuilder::new().build();
 /// ```
-pub struct RuntimeBuilder {}
+pub struct RuntimeBuilder {
+    enable_io: bool,
+    enable_fs: bool,
+}
+
+impl Default for RuntimeBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RuntimeBuilder {
     /// Creates a new runtime builder.
@@ -24,9 +33,25 @@ impl RuntimeBuilder {
     /// ```ignore
     /// let builder = RuntimeBuilder::new();
     /// ```
-    #[allow(clippy::new_without_default)] // TODO: Enable when configuration options are added
     pub fn new() -> Self {
-        Self {}
+        Self {
+            enable_io: false,
+            enable_fs: false,
+        }
+    }
+
+    /// Enables reactor-backed I/O support for the runtime being built.
+    pub fn enable_io(mut self) -> Self {
+        self.enable_io = true;
+        self
+    }
+
+    /// Enables filesystem support for the runtime being built.
+    pub fn enable_fs(mut self) -> Self {
+        self.enable_fs = true;
+        // Filesystem support relies on reactor I/O for non-blocking operations.
+        self.enable_io = true;
+        self
     }
 
     /// Builds and returns a configured Runtime instance.
@@ -42,6 +67,6 @@ impl RuntimeBuilder {
     /// let rt = RuntimeBuilder::new().build();
     /// ```
     pub fn build(self) -> Runtime {
-        Runtime::default()
+        Runtime::with_features(self.enable_io, self.enable_fs)
     }
 }
