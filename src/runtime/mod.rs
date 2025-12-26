@@ -2,6 +2,7 @@
 
 pub(crate) mod context;
 mod core;
+pub(crate) mod driver;
 pub(crate) mod executor;
 pub(crate) mod queue;
 pub(crate) mod waker;

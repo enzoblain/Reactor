@@ -15,6 +15,7 @@
 //! - **Reactor**: Event-driven I/O handling with kqueue
 
 mod builder;
+pub mod net;
 mod reactor;
 mod runtime;
 mod task;

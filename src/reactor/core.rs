@@ -101,6 +101,13 @@ impl Reactor {
         self.n_events = n_events;
     }
 
+    /// Wait for events with a timeout in milliseconds.
+    pub(crate) fn wait_for_event_with_timeout(&mut self, timeout_ms: u64) {
+        let n_events = Event::wait_with_timeout(self.queue, &mut self.events, timeout_ms);
+
+        self.n_events = n_events;
+    }
+
     /// Polls for I/O events without blocking and handles them if present.
     pub(crate) fn poll_events(&mut self) {
         let n_events = Event::try_wait(self.queue, &mut self.events);
@@ -136,7 +143,10 @@ impl Reactor {
 
                     match &mut entry {
                         Entry::Waiting(waker) => {
+                            // Preserve the waiting registration so subsequent readiness events
+                            // continue to wake the associated future.
                             self.wakers.push(waker.clone());
+                            self.registry.insert(file_descriptor, entry);
                             continue;
                         }
                         Entry::Client(conn) if matches!(conn.state, ConnexionState::Reading) => {
@@ -163,7 +173,10 @@ impl Reactor {
 
                     match &mut entry {
                         Entry::Waiting(waker) => {
+                            // Preserve the waiting registration so subsequent readiness events
+                            // continue to wake the associated future.
                             self.wakers.push(waker.clone());
+                            self.registry.insert(file_descriptor, entry);
                             continue;
                         }
                         Entry::Client(conn) if matches!(conn.state, ConnexionState::Writing) => {
@@ -256,6 +269,6 @@ impl Reactor {
     }
 }
 
-fn errno() -> i32 {
+pub fn errno() -> i32 {
     unsafe { *libc::__error() }
 }

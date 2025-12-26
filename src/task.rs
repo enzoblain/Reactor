@@ -4,6 +4,7 @@
 //! when the future is ready to make progress. Supports both direct task execution via
 //! the runtime and global task spawning without requiring an explicit runtime reference.
 
+use crate::runtime::driver::ensure_driver;
 use crate::runtime::{CURRENT_QUEUE, TaskQueue, enter_context, make_waker};
 
 use std::future::Future;
@@ -94,10 +95,12 @@ impl Task {
                 .expect("Task::spawn() called outside of a runtime context")
                 .clone();
 
+            // Ensure the background driver is running so tasks and I/O progress
+            // even if the main future performs blocking operations.
+            ensure_driver(queue.clone());
+
             let task = Task::new(fut, queue.clone());
-            // Poll once immediately to register I/O or make initial progress
-            task.poll();
-            // Enqueue for subsequent scheduling by the executor
+            // Enqueue for scheduling by the driver's executor
             queue.push(task.clone());
             JoinHandle { task }
         })

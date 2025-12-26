@@ -114,7 +114,18 @@ impl Runtime {
             loop {
                 // Try to make progress on the main future
                 if let Poll::Ready(val) = fut.as_mut().poll(&mut cx) {
-                    self.executor.run();
+                    // Signal the driver thread to shut down immediately
+                    self.queue.shutdown();
+
+                    // Give remaining tasks a brief moment to complete
+                    for _ in 0..10 {
+                        self.executor.run();
+                        if self.queue.is_empty() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+
                     return val;
                 }
 

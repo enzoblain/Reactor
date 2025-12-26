@@ -19,23 +19,22 @@ fn test_async_read_pipe_wakes() {
         let rfd = fds[0];
         let wfd = fds[1];
 
-        Task::spawn(async move {
+        let handle = Task::spawn(async move {
             AsyncRead::new(rfd).await.unwrap();
             ok2.store(true, Ordering::SeqCst);
         });
-
-        // No explicit yield required: spawn polls once to register I/O
 
         // Write a byte to trigger read readiness
         let buf = [1u8; 1];
         let wrote = unsafe { libc::write(wfd, buf.as_ptr() as *const _, 1) };
         assert_eq!(wrote, 1);
 
-        // No explicit yield required: runtime polls I/O opportunistically
-
         unsafe {
             libc::close(wfd);
         }
+
+        // Wait for the task to complete
+        handle.await;
     });
 
     assert!(ok.load(Ordering::SeqCst));
@@ -54,12 +53,13 @@ fn test_async_write_pipe_wakes() {
         let _rfd = fds[0];
         let wfd = fds[1];
 
-        Task::spawn(async move {
+        let handle = Task::spawn(async move {
             AsyncWrite::new(wfd).await.unwrap();
             ok2.store(true, Ordering::SeqCst);
         });
 
-        // No explicit yield required: spawn polls once; write end is ready
+        // Wait for the task to complete
+        handle.await;
     });
 
     assert!(ok.load(Ordering::SeqCst));
