@@ -9,7 +9,7 @@ fn test_builder_creation() {
 
 #[test]
 fn test_runtime_new_has_features_disabled() {
-    let rt = reactor::Runtime::new();
+    let rt = RuntimeBuilder::new().build();
     assert!(!rt.io_enabled());
     assert!(!rt.fs_enabled());
 }

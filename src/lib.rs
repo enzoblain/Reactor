@@ -21,7 +21,7 @@
 //! and manages task scheduling:
 //!
 //! ```ignore
-//! let mut runtime = Runtime::new();
+//! let mut runtime = RuntimeBuilder::new().build();
 //! runtime.block_on(async {
 //!     println!("Running async code");
 //! });
@@ -175,7 +175,7 @@
 //!
 //! #[test]
 //! fn echo_server() {
-//!     let mut rt = Runtime::new();
+//!     let mut rt = RuntimeBuilder::new().build();
 //!
 //!     rt.block_on(async {
 //!         let listener = TcpListener::bind("127.0.0.1:9999").await.unwrap();

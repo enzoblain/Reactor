@@ -7,7 +7,7 @@
 //! Public API:
 //! - [`File`]: Main handle for async file I/O
 //! - [`Folder`]: OOP-style directory API with helpers like [`Folder::create`]
-//! - [`create_dir`], [`create_dir_all`]: Function-style helpers for convenience
+//! - \[`create_dir`], \[`create_dir_all`]: Function-style helpers for convenience
 
 pub mod file;
 pub mod folder;

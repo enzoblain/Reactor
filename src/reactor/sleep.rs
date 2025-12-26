@@ -80,7 +80,7 @@ impl Sleep {
 
 /// Creates a sleep future for the given duration.
 ///
-/// This is a convenience function that creates a [`Sleep`] future. The returned
+/// This is a convenience function that creates a Sleep future. The returned
 /// future will complete after the specified duration has elapsed.
 ///
 /// # Arguments

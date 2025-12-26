@@ -14,7 +14,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! let mut runtime = Runtime::new();
+//! let mut runtime = RuntimeBuilder::new().build();
 //! let result = runtime.block_on(async {
 //!     println!("Hello from async");
 //!     42
@@ -47,7 +47,7 @@ use std::task::{Context, Poll};
 /// # Example
 ///
 /// ```ignore
-/// let mut runtime = Runtime::new();
+/// let mut runtime = RuntimeBuilder::new().build();
 /// runtime.block_on(async {
 ///     println!("Hello, async world!");
 /// });
@@ -77,12 +77,8 @@ impl Runtime {
     ///
     /// # Example
     /// ```ignore
-    /// let runtime = Runtime::new();
+    /// let runtime = RuntimeBuilder::new().build();
     /// ```
-    pub fn new() -> Self {
-        Self::with_features(false, false)
-    }
-
     /// Creates a runtime with the requested feature set.
     pub(crate) fn with_features(io_enabled: bool, fs_enabled: bool) -> Self {
         let io_enabled = io_enabled || fs_enabled; // fs support requires reactor-backed I/O
@@ -246,6 +242,6 @@ impl Runtime {
 
 impl Default for Runtime {
     fn default() -> Self {
-        Self::new()
+        crate::builder::RuntimeBuilder::new().build()
     }
 }

@@ -1,9 +1,9 @@
-use reactor::{Runtime, Task};
+use reactor::{RuntimeBuilder, Task};
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_global_spawn_basic() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let completed = Arc::new(Mutex::new(false));
     let completed_clone = completed.clone();
 
@@ -21,7 +21,7 @@ fn test_global_spawn_basic() {
 
 #[test]
 fn test_global_spawn_multiple() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let counter = Arc::new(Mutex::new(0));
 
     let c1 = counter.clone();
@@ -51,7 +51,7 @@ fn test_global_spawn_multiple() {
 
 #[test]
 fn test_global_spawn_nested() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let values = Arc::new(Mutex::new(Vec::new()));
 
     let v0 = values.clone();
@@ -82,7 +82,7 @@ fn test_global_spawn_nested() {
 
 #[test]
 fn test_global_spawn_from_spawned_task() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let counter = Arc::new(Mutex::new(0));
 
     let c1 = counter.clone();
@@ -114,7 +114,7 @@ fn test_global_spawn_panics_outside_runtime() {
 
 #[test]
 fn test_global_spawn_with_return_values() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let results = Arc::new(Mutex::new(Vec::new()));
 
     let r1 = results.clone();
@@ -143,7 +143,7 @@ fn compute_value(x: i32) -> i32 {
 
 #[test]
 fn test_spawn_from_separate_async_function() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let counter = Arc::new(Mutex::new(0));
 
     let c = counter.clone();
@@ -173,7 +173,7 @@ async fn do_work_with_spawn(counter: Arc<Mutex<i32>>) {
 
 #[test]
 fn test_spawn_from_nested_function_calls() {
-    let mut rt = Runtime::new();
+    let mut rt = RuntimeBuilder::new().build();
     let values = Arc::new(Mutex::new(Vec::new()));
 
     let v = values.clone();

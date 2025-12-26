@@ -1,23 +1,18 @@
-//! Global runtime context for thread-local task spawning.
-//!
-//! Provides a thread-local runtime handle that allows spawning tasks without
-//! explicitly passing a runtime reference, similar to `tokio::spawn`.
-//!
-//! # Thread-Local Storage
-//!
-//! This module uses thread-local storage to maintain:
-//! - The current runtime's task queue for spawning tasks
-
-//!   Thread-local runtime context and feature gating for async task spawning and I/O.
+//! Thread-local runtime context and feature gating for async task spawning and I/O.
 //!
 //! This module manages the thread-local state required for global task spawning (`Task::spawn`) and
 //! for safe, feature-gated access to the runtime's reactor (I/O, timers, filesystem).
 //!
-//! # Overview
+//! # Purpose
 //!
-//! - Allows retrieving the current context (queue, reactor, features) during a `block_on`.
-//! - Ensures that I/O or FS operations are only accessible if explicitly enabled.
-//! - Used internally by most async primitives in the crate.
+//! - Provides thread-local storage for the current runtime context (task queue, reactor handle, features).
+//! - Ensures that I/O and filesystem operations are only accessible if explicitly enabled in the runtime.
+//! - Used internally by async primitives to access the current runtime without explicit handles.
+//!
+//! # Usage
+//!
+//! This module is not intended for direct use by most users. It is used by the runtime and async primitives
+//! to manage context during `block_on` and task execution. See [`enter_context`] for details.
 //!
 //! # Example
 //!
@@ -48,7 +43,17 @@ use std::sync::Arc;
 
 /// Feature switches for the current runtime context.
 ///
-/// Used internally to gate access to I/O and filesystem APIs.
+/// This struct is used internally to gate access to I/O and filesystem APIs.
+/// It is set by the runtime when entering a new context (see [`enter_context`]).
+///
+/// - `io_enabled`: If true, reactor-backed I/O is enabled for this runtime context.
+/// - `fs_enabled`: If true, filesystem support is enabled for this runtime context.
+///
+/// # Example
+///
+/// ```ignore
+/// let features = Features { io_enabled: true, fs_enabled: false };
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Features {
     /// If true, reactor-backed I/O is enabled for this runtime context.
