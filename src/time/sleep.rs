@@ -56,7 +56,7 @@ impl Sleep {
     /// ```ignore
     /// Sleep::new(Duration::from_secs(1)).await;
     /// ```
-    pub fn new(duration: Duration) -> Self {
+    pub(crate) fn new(duration: Duration) -> Self {
         Self::new_with_reactor(duration, current_reactor_io())
     }
 
@@ -69,7 +69,7 @@ impl Sleep {
     /// # Arguments
     /// * `duration` - How long to sleep
     /// * `reactor` - A handle to the reactor for managing timer events
-    pub fn new_with_reactor(duration: Duration, reactor: ReactorHandle) -> Self {
+    pub(crate) fn new_with_reactor(duration: Duration, reactor: ReactorHandle) -> Self {
         Self {
             duration,
             reactor,
