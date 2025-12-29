@@ -69,23 +69,29 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-/// A spawned task that wraps a future.
+/// A spawned task that wraps a future and supports generic output.
 ///
 /// Contains a boxed future and references to the task queue for re-scheduling
 /// when the task is awakened. Tasks are typically created via [`Task::spawn`] and
 /// should not be constructed directly in user code.
 ///
+/// # Type Parameters
+///
+/// * `T` - The output type of the wrapped future
+///
 /// # Internals
 ///
 /// - `future`: The wrapped future being executed
+/// - `result`: Stores the output value once the task completes
 /// - `queue`: Reference to the task queue for re-scheduling
 /// - `completed`: Atomic flag indicating task completion
 /// - `waiters`: Wakers waiting for this task to complete
-pub struct Task {
-    future: Mutex<Option<Pin<Box<dyn Future<Output = ()>>>>>,
+pub struct Task<T> {
+    future: Mutex<Option<Pin<Box<dyn Future<Output = T>>>>>,
+    pub(crate) result: Mutex<Option<T>>,
     pub(crate) queue: Arc<TaskQueue>,
-    completed: AtomicBool,
-    waiters: Mutex<Vec<Waker>>,
+    pub(crate) completed: AtomicBool,
+    pub(crate) waiters: Mutex<Vec<Waker>>,
 }
 
 // Task can be safely sent across threads because:
@@ -94,10 +100,10 @@ pub struct Task {
 // - AtomicBool is Send/Sync
 // - Arc<TaskQueue> is Send/Sync
 // Even though the future itself might not be Send, the Mutex makes it safe to share
-unsafe impl Send for Task {}
-unsafe impl Sync for Task {}
+unsafe impl<T> Send for Task<T> {}
+unsafe impl<T> Sync for Task<T> {}
 
-impl Task {
+impl<T: 'static> Task<T> {
     /// Creates a new task wrapping the given future.
     ///
     /// Constructs a new Task by boxing the future and storing it with a reference
@@ -114,9 +120,13 @@ impl Task {
     /// ```ignore
     /// let queue = Arc::new(TaskQueue::new());\n    /// let task = Task::new(async { println!(\"Hello\"); }, queue);
     /// ```
-    pub(crate) fn new(fut: impl Future<Output = ()> + 'static, queue: Arc<TaskQueue>) -> Arc<Self> {
+    pub(crate) fn new<F>(fut: F, queue: Arc<TaskQueue>) -> Arc<Self>
+    where
+        F: Future<Output = T> + 'static,
+    {
         Arc::new(Task {
             future: Mutex::new(Some(Box::pin(fut))),
+            result: Mutex::new(None),
             queue,
             completed: AtomicBool::new(false),
             waiters: Mutex::new(Vec::new()),
@@ -148,12 +158,13 @@ impl Task {
                 Poll::Pending => {
                     *future_slot = Some(future);
                 }
-                Poll::Ready(()) => {
-                    self.completed.store(true, Ordering::SeqCst);
+                Poll::Ready(val) => {
+                    *self.result.lock().unwrap() = Some(val);
+                    self.completed.store(true, Ordering::Release);
 
                     let mut waiters = self.waiters.lock().unwrap();
-                    for waker in waiters.drain(..) {
-                        waker.wake();
+                    for w in waiters.drain(..) {
+                        w.wake();
                     }
                 }
             }
@@ -190,7 +201,10 @@ impl Task {
     /// ```
     ///
     /// [`Runtime::block_on`]: crate::runtime::Runtime::block_on
-    pub fn spawn<F: Future<Output = ()> + 'static>(future: F) -> JoinHandle {
+    pub fn spawn<F>(future: F) -> JoinHandle<T>
+    where
+        F: Future<Output = T> + 'static,
+    {
         CURRENT_QUEUE.with(|current| {
             let queue = current
                 .borrow()
@@ -198,34 +212,64 @@ impl Task {
                 .expect("Task::spawn() called outside of a runtime context")
                 .clone();
 
-            let task = Task::new(future, queue.clone());
-            queue.push(task.clone());
+            let task: Arc<Task<T>> = Task::new(future, queue.clone());
+            let runnable: Arc<dyn Runnable> = task.clone();
+
+            queue.push(runnable);
 
             JoinHandle { task }
         })
     }
 }
 
-/// A future that resolves when the associated task completes.
+/// Trait for objects that can be polled as tasks by the executor.
+///
+/// This trait is used internally to allow heterogeneous task types to be stored in the queue.
+pub(crate) trait Runnable: Send + Sync {
+    /// Polls the task for progress.
+    fn poll(self: Arc<Self>);
+}
+
+impl<T: 'static> Runnable for Task<T> {
+    /// Polls the generic task by delegating to [`Task::poll`].
+    fn poll(self: Arc<Self>) {
+        Task::poll(&self);
+    }
+}
+
+/// A future that resolves when the associated task completes, returning the output value.
 ///
 /// This is the return value of [`Task::spawn`]. It implements [`Future`] and can be awaited
-/// to wait for the spawned task to finish execution.
+/// to wait for the spawned task to finish execution. The generic parameter `T` is the output
+/// type of the spawned future.
+///
+/// # Type Parameters
+///
+/// * `T` - The output type of the spawned future
 ///
 /// # Example
 /// ```ignore
-/// let handle: JoinHandle = Task::spawn(async { /* ... */ });
-/// handle.await; // Waits for the task to complete
+/// let handle: JoinHandle<i32> = Task::spawn(async { 42 });
+/// let result = handle.await; // result: i32
 /// ```
-pub struct JoinHandle {
-    task: Arc<Task>,
+pub struct JoinHandle<T> {
+    task: Arc<Task<T>>,
 }
 
-impl Future for JoinHandle {
-    type Output = ();
+impl<T> Future for JoinHandle<T> {
+    type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.task.completed.load(Ordering::SeqCst) {
-            return Poll::Ready(());
+            let result = self
+                .task
+                .result
+                .lock()
+                .unwrap()
+                .take()
+                .expect("task completed but result missing");
+
+            return Poll::Ready(result);
         }
 
         let mut ws = self.task.waiters.lock().unwrap();
@@ -235,10 +279,15 @@ impl Future for JoinHandle {
     }
 }
 
-/// A helper to collect multiple [`JoinHandle`]s and await all of them at once.
+/// A helper to collect multiple [`JoinHandle`]s and await all of them at once, for generic output types.
 ///
 /// This utility makes it easy to spawn multiple tasks and wait for all of them to complete
-/// without explicitly looping over individual awaits.
+/// without explicitly looping over individual awaits. The generic parameter `T` is the output
+/// type of each task.
+///
+/// # Type Parameters
+///
+/// * `T` - The output type of each joined task
 ///
 /// # Example
 /// ```ignore
@@ -247,17 +296,18 @@ impl Future for JoinHandle {
 /// for i in 0..5 {
 ///     set.push(Task::spawn(async move {
 ///         println!("Task {}", i);
+///         i
 ///     }));
 /// }
 ///
 /// set.await_all().await; // Waits for all tasks
 /// println!("All done");
 /// ```
-pub struct JoinSet {
-    handles: Vec<JoinHandle>,
+pub struct JoinSet<T> {
+    handles: Vec<JoinHandle<T>>,
 }
 
-impl JoinSet {
+impl<T> JoinSet<T> {
     /// Creates a new empty JoinSet.
     ///
     /// The JoinSet starts with no handles. Push handles using [`Self::push`].
@@ -271,7 +321,7 @@ impl JoinSet {
     ///
     /// # Arguments
     /// * `handle` - The [`JoinHandle`] to add
-    pub fn push(&mut self, handle: JoinHandle) {
+    pub fn push(&mut self, handle: JoinHandle<T>) {
         self.handles.push(handle);
     }
 
@@ -287,7 +337,7 @@ impl JoinSet {
     }
 }
 
-impl Default for JoinSet {
+impl<T> Default for JoinSet<T> {
     fn default() -> Self {
         Self::new()
     }

@@ -206,10 +206,10 @@ mod task;
 
 pub mod fs;
 pub mod net;
+pub mod time;
 
 pub use builder::RuntimeBuilder;
 pub use reactor::core::ReactorHandle;
-pub use reactor::sleep::sleep;
 pub use runtime::Runtime;
 pub use runtime::yield_now::yield_now;
 pub use task::{JoinHandle, JoinSet, Task};

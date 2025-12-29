@@ -6,12 +6,10 @@
 //! - [`event`]: kqueue event wrappers
 //! - [`io`]: Connection state management
 //! - [`future`]: Generic read/write futures for file descriptors
-//! - [`sleep`]: Timer-based sleep futures
 //! - [`socket`]: Socket acceptance utilities
 
 pub mod core;
 pub mod event;
 pub mod future;
 pub mod io;
-pub mod sleep;
 pub mod socket;

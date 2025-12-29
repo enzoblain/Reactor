@@ -11,24 +11,29 @@ use crate::task::Task;
 use std::sync::Arc;
 use std::task::{RawWaker, RawWakerVTable, Waker};
 
-/// Custom waker that re-queues tasks when awakened.
+/// Custom waker that re-queues generic tasks when awakened.
 ///
 /// Implements the Rust waker protocol to automatically re-enqueue a task
-/// when it becomes ready to make further progress.
-pub struct TaskWaker {
+/// when it becomes ready to make further progress. The generic parameter `T` allows
+/// the waker to work with any task output type.
+///
+/// # Type Parameters
+///
+/// * `T` - The output type of the associated task
+pub struct TaskWaker<T> {
     /// The task to wake when notified.
-    task: Arc<Task>,
+    task: Arc<Task<T>>,
 }
 
-impl TaskWaker {
-    /// Creates a new waker for the given task.
+impl<T: 'static> TaskWaker<T> {
+    /// Creates a new waker for the given generic task.
     ///
     /// # Arguments
     /// * `task` - The task to wake when notified
     ///
     /// # Returns
-    /// An Arc-wrapped `TaskWaker`
-    pub fn new(task: Arc<Task>) -> Arc<Self> {
+    /// An Arc-wrapped `TaskWaker<T>`
+    pub fn new(task: Arc<Task<T>>) -> Arc<Self> {
         Arc::new(Self { task })
     }
 
@@ -42,7 +47,7 @@ impl TaskWaker {
     /// [`RawWakerVTable`]: std::task::RawWakerVTable
     fn clone_raw(data_ptr: *const ()) -> RawWaker {
         unsafe {
-            let arc = Arc::<TaskWaker>::from_raw(data_ptr as *const TaskWaker);
+            let arc = Arc::<TaskWaker<T>>::from_raw(data_ptr as *const TaskWaker<T>);
             let cloned = arc.clone();
             std::mem::forget(arc);
 
@@ -55,7 +60,7 @@ impl TaskWaker {
     /// [`RawWakerVTable`]: std::task::RawWakerVTable
     fn wake_raw(data_ptr: *const ()) {
         unsafe {
-            let arc = Arc::<TaskWaker>::from_raw(data_ptr as *const TaskWaker);
+            let arc = Arc::<TaskWaker<T>>::from_raw(data_ptr as *const TaskWaker<T>);
             arc.wake();
         }
     }
@@ -65,7 +70,7 @@ impl TaskWaker {
     /// [`RawWakerVTable`]: std::task::RawWakerVTable
     fn wake_by_ref_raw(data_ptr: *const ()) {
         unsafe {
-            let arc = Arc::<TaskWaker>::from_raw(data_ptr as *const TaskWaker);
+            let arc = Arc::<TaskWaker<T>>::from_raw(data_ptr as *const TaskWaker<T>);
             arc.wake();
             let _ = Arc::into_raw(arc);
         }
@@ -76,7 +81,7 @@ impl TaskWaker {
     /// [`RawWakerVTable`]: std::task::RawWakerVTable
     fn drop_raw(data_ptr: *const ()) {
         unsafe {
-            Arc::<TaskWaker>::from_raw(data_ptr as *const TaskWaker);
+            Arc::<TaskWaker<T>>::from_raw(data_ptr as *const TaskWaker<T>);
         }
     }
 
@@ -89,10 +94,14 @@ impl TaskWaker {
     );
 }
 
-/// Creates a [`Waker`] from a [`Task`] that re-queues on wake.
+/// Creates a [`Waker`] from a generic [`Task<T>`] that re-queues on wake.
 ///
 /// Constructs a Waker that implements the standard Rust task waking protocol.
 /// When woken, the task is pushed back to the queue for re-execution.
+///
+/// # Type Parameters
+///
+/// * `T` - The output type of the associated task
 ///
 /// # Arguments
 /// * `task` - The task to create a waker for
@@ -102,9 +111,12 @@ impl TaskWaker {
 ///
 /// [`Waker`]: std::task::Waker
 /// [`Task`]: crate::task::Task
-pub(crate) fn make_waker(task: Arc<Task>) -> Waker {
+pub(crate) fn make_waker<T: 'static>(task: Arc<Task<T>>) -> Waker {
     let task_waker = TaskWaker::new(task);
-    let raw_waker = RawWaker::new(Arc::into_raw(task_waker) as *const (), &TaskWaker::VTABLE);
+    let raw_waker = RawWaker::new(
+        Arc::into_raw(task_waker) as *const (),
+        &TaskWaker::<T>::VTABLE,
+    );
 
     unsafe { Waker::from_raw(raw_waker) }
 }

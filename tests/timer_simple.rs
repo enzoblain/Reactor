@@ -1,4 +1,5 @@
-use reactor::{RuntimeBuilder, sleep};
+use reactor::RuntimeBuilder;
+use reactor::time::sleep;
 use std::time::{Duration, Instant};
 
 #[test]
