@@ -31,10 +31,15 @@
 //! Spawn background tasks using [`Task::spawn`] from within an async context:
 //!
 //! ```ignore
-//! #[tokio::main]
-//! async fn main() {
-//!     Task::spawn(async {
-//!         println!("Background task");
+//! use reactor::RuntimeBuilder;
+//! use reactor::Task;
+//!
+//! fn main() {
+//!     let mut rt = RuntimeBuilder::new().enable_io().build();
+//!     rt.block_on(async {
+//!         Task::spawn(async {
+//!             println!("Background task");
+//!         });
 //!     });
 //! }
 //! ```
