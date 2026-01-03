@@ -98,7 +98,7 @@ fn main() {
 
 ## 📄 License Philosophy
 
-Cryptal is licensed under the **Server Side Public License (SSPL) v1**.
+Cadentis is licensed under the **Server Side Public License (SSPL) v1**.
 
 This license is intentionally chosen to protect the integrity of the Nebula ecosystem.  
 While the project is fully open for **contribution, improvement, and transparency**,  
@@ -114,7 +114,7 @@ By using SSPL, we ensure that:
 - contributors retain full access to the entire codebase.
 
 
-In short, SSPL ensures that Cryptal — and the Nebula ecosystem built on top of it —  
+In short, SSPL ensures that Cadentis — and the Nebula ecosystem built on top of it —  
 remains **open to the community, but protected from fragmentation and exploitation**.
 
 ## 🤝 Contact
