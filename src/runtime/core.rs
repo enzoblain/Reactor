@@ -29,7 +29,7 @@ impl Runtime {
         }
     }
 
-    pub fn spawn<F: Future<Output = ()> + 'static>(&self, future: F) {
+    pub fn spawn<F: Future<Output = ()> + 'static + Send>(&self, future: F) {
         let task = Task::new(future, self.queue.clone());
         self.queue.push(task);
     }

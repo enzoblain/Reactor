@@ -3,11 +3,11 @@ use crate::task::Task;
 use std::sync::Arc;
 use std::task::{RawWaker, RawWakerVTable, Waker};
 
-pub struct TaskWaker<T> {
+pub struct TaskWaker<T: Send> {
     task: Arc<Task<T>>,
 }
 
-impl<T: 'static> TaskWaker<T> {
+impl<T: 'static + Send> TaskWaker<T> {
     pub fn new(task: Arc<Task<T>>) -> Arc<Self> {
         Arc::new(Self { task })
     }
@@ -55,7 +55,7 @@ impl<T: 'static> TaskWaker<T> {
     );
 }
 
-pub(crate) fn make_waker<T: 'static>(task: Arc<Task<T>>) -> Waker {
+pub(crate) fn make_waker<T: 'static + Send>(task: Arc<Task<T>>) -> Waker {
     let task_waker = TaskWaker::new(task);
     let raw_waker = RawWaker::new(
         Arc::into_raw(task_waker) as *const (),

@@ -6,21 +6,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-pub struct Task<T> {
-    future: Mutex<Option<Pin<Box<dyn Future<Output = T>>>>>,
+pub struct Task<T: Send> {
+    future: Mutex<Option<Pin<Box<dyn Future<Output = T> + Send>>>>,
     pub(crate) result: Mutex<Option<T>>,
     pub(crate) queue: Arc<TaskQueue>,
     pub(crate) completed: AtomicBool,
     pub(crate) waiters: Mutex<Vec<Waker>>,
 }
 
-unsafe impl<T> Send for Task<T> {}
-unsafe impl<T> Sync for Task<T> {}
-
-impl<T: 'static> Task<T> {
+impl<T: 'static + Send> Task<T> {
     pub(crate) fn new<F>(fut: F, queue: Arc<TaskQueue>) -> Arc<Self>
     where
-        F: Future<Output = T> + 'static,
+        F: Future<Output = T> + 'static + Send,
     {
         Arc::new(Task {
             future: Mutex::new(Some(Box::pin(fut))),
@@ -57,7 +54,7 @@ impl<T: 'static> Task<T> {
 
     pub fn spawn<F>(future: F) -> JoinHandle<T>
     where
-        F: Future<Output = T> + 'static,
+        F: Future<Output = T> + 'static + Send,
     {
         CURRENT_QUEUE.with(|current| {
             let queue = current
@@ -80,17 +77,17 @@ pub(crate) trait Runnable: Send + Sync {
     fn poll(self: Arc<Self>);
 }
 
-impl<T: 'static> Runnable for Task<T> {
+impl<T: 'static + Send> Runnable for Task<T> {
     fn poll(self: Arc<Self>) {
         Task::poll(&self);
     }
 }
 
-pub struct JoinHandle<T> {
+pub struct JoinHandle<T: Send> {
     task: Arc<Task<T>>,
 }
 
-impl<T> Future for JoinHandle<T> {
+impl<T: Send> Future for JoinHandle<T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -113,11 +110,11 @@ impl<T> Future for JoinHandle<T> {
     }
 }
 
-pub struct JoinSet<T> {
+pub struct JoinSet<T: Send> {
     handles: Vec<JoinHandle<T>>,
 }
 
-impl<T> JoinSet<T> {
+impl<T: Send> JoinSet<T> {
     pub fn new() -> Self {
         Self {
             handles: Vec::new(),
@@ -135,7 +132,7 @@ impl<T> JoinSet<T> {
     }
 }
 
-impl<T> Default for JoinSet<T> {
+impl<T: Send> Default for JoinSet<T> {
     fn default() -> Self {
         Self::new()
     }
